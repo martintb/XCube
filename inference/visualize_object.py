@@ -34,10 +34,10 @@ pc = ps.register_point_cloud(f"Fine Point", fine_xyz)
 fine_normal_color = fine_normal * 0.5 + 0.5
 pc.add_color_quantity("normal", fine_normal_color, enabled=True)
 
-# Mesh
-mesh = trimesh.load(os.path.join(args.path, f"mesh/mesh_{args.id}.obj"))
-mesh_n = pcu.estimate_mesh_vertex_normals(mesh.vertices, mesh.faces)
-mesh_c = (mesh_n + 1) / 2
-
-ps.register_surface_mesh(f"NKSR", mesh.vertices, mesh.faces).add_color_quantity("normal", mesh_c, enabled=True) 
+# # Mesh
+# mesh = trimesh.load(os.path.join(args.path, f"mesh/mesh_{args.id}.obj"))
+# mesh_n = pcu.estimate_mesh_vertex_normals(mesh.vertices, mesh.faces)
+# mesh_c = (mesh_n + 1) / 2
+# 
+# ps.register_surface_mesh(f"NKSR", mesh.vertices, mesh.faces).add_color_quantity("normal", mesh_c, enabled=True) 
 ps.show()

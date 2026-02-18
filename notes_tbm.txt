@@ -1,0 +1,5 @@
+- FVDB
+	- downgrade CMAKE to < 4
+	- export TORCH_CUDA_ARCH_LIST="9.0"
+	- might n
+	- python -m pip install -v --no-build-isolation .

@@ -3,6 +3,8 @@ model: diffusion
 vae_config: ""
 vae_checkpoint: ""
 
+log_image: false # upsampler model does not log image for speed up
+
 voxel_size: 0.01
 resolution: 128
 

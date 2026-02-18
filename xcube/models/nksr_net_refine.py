@@ -8,9 +8,11 @@
 
 import gc
 import random
+import inspect
 import omegaconf
 import importlib
 from typing import Optional
+from pathlib import Path
 
 import polyscope as ps
 import fvdb
@@ -71,9 +73,43 @@ class Model(BaseModel):
         self.network = NKSRNetwork(self.hparams)        
         self.mismatched_voxel_size = True
         self.input_is_points = False
+        self.vae = self._load_vae()
 
-        if self.hparams.args_ckpt == 'none':
-            self.vae = None
+    def _load_vae(self):
+        args_ckpt = str(self.hparams.get('args_ckpt', '')).strip()
+        pretrained_ckpt = str(self.hparams.get('pretrained_ckpt', '')).strip()
+
+        ckpt_ref = args_ckpt if args_ckpt not in ['', 'none', 'None', '--'] else pretrained_ckpt
+        if ckpt_ref in ['', 'none', 'None', '--']:
+            raise ValueError(
+                "VAE checkpoint is required for nksr_net_refine. "
+                "Please set `args_ckpt` in config or pass `--args_ckpt <ckpt_or_wdb_ref>` in CLI."
+            )
+
+        if ckpt_ref.startswith('wdb:'):
+            _, ckpt_path = wandb_util.get_wandb_run(
+                ckpt_ref,
+                wdb_base='../wandb/',
+                default_ckpt='last',
+                is_train=False
+            )
+            ckpt_ref = str(ckpt_path)
+
+        ckpt_path = Path(ckpt_ref)
+        if not ckpt_path.exists():
+            raise FileNotFoundError(f"VAE checkpoint does not exist: {ckpt_path}")
+
+        vae_model = self.load_module(ckpt_path)
+        vae_model.eval()
+        for param in vae_model.parameters():
+            param.requires_grad = False
+        return vae_model
+
+    def _run_vae(self, batch, vae_out, noise_step: int):
+        forward_sig = inspect.signature(self.vae.forward)
+        if 'noise_step' in forward_sig.parameters:
+            return self.vae(batch, vae_out, noise_step=noise_step)
+        return self.vae(batch, vae_out)
 
     @classmethod
     def add_transforms_if_needed(cls, target_kwargs, transform_kwargs):
@@ -317,7 +353,7 @@ class Model(BaseModel):
             self.hparams.vae_noise_step_max
         )
         with torch.no_grad():
-            vae_out = self.vae(batch, vae_out, noise_step=vae_noise_step)
+            vae_out = self._run_vae(batch, vae_out, noise_step=vae_noise_step)
 
         # Random crop augmentation
         vae_out = self.extract_vae_out(vae_out)
@@ -431,7 +467,7 @@ class Model(BaseModel):
         out = {'idx': batch_idx}
         vae_out = {}
         with torch.no_grad():
-            vae_out = self.vae(batch, vae_out,  noise_step=600)
+            vae_out = self._run_vae(batch, vae_out, noise_step=600)
 
         out['in_normal']: JaggedTensor = vae_out['normal_features'][-1].feature
         out['in_grid'] = vae_out['tree'][0]
