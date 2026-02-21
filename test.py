@@ -34,7 +34,10 @@ class OverfitLoggerNull:
 
 def get_default_parser():
     default_parser = argparse.ArgumentParser(add_help=False)
-    default_parser = pl.Trainer.add_argparse_args(default_parser)
+    default_parser.add_argument('--gpus', default=None, type=int, help='Number of GPUs to use.')
+    default_parser.add_argument('--accelerator', default=None, type=str, help='Accelerator type.')
+    default_parser.add_argument('--devices', default=None, type=int, help='Number of devices.')
+    default_parser.add_argument('--max_epochs', default=1, type=int, help='Maximum number of epochs.')
     return default_parser
 
 if __name__ == '__main__':
@@ -71,7 +74,7 @@ if __name__ == '__main__':
     if args.gpus is None:
         args.gpus = 1
 
-    trainer = pl.Trainer.from_argparse_args(argparse.Namespace(**args), logger=None, max_epochs=1)
+    trainer = pl.Trainer(accelerator="gpu", devices=args.gpus or 1, logger=None, max_epochs=1)
     net_module = importlib.import_module("xcube.models." + args.model).Model
 
     # --ckpt & --weight logic:

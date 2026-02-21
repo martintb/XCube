@@ -37,7 +37,7 @@ def _build_joint_dual_grid(primal_grids: List[GridBatch]):
         ]], device=primal_grid.device, dtype=ijk.dtype)) * primal_scale
         dual_ijks.append(ijk.view(-1, 3))
 
-    return fvdb.sparse_grid_from_ijk(
+    return fvdb.GridBatch.from_ijk(
         torch.cat(dual_ijks, dim=0),
         voxel_sizes=primal_grids[0].voxel_sizes,
         origins=primal_grids[0].origins - 0.5 * primal_grids[0].voxel_sizes,

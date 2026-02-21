@@ -65,7 +65,7 @@ for category in _shapenet_categories:
         ref_normal = n[fid]
                 
         ijk = pcu.voxelize_triangle_mesh(v, f.astype(np.int32), vox_size, np.zeros(3))
-        grid = fvdb.sparse_grid_from_ijk(fvdb.JaggedTensor([torch.from_numpy(ijk).cuda()]), voxel_sizes=vox_size, origins=[vox_size / 2.] * 3)
+        grid = fvdb.GridBatch.from_ijk(fvdb.JaggedTensor([torch.from_numpy(ijk).cuda()]), voxel_sizes=vox_size, origins=[vox_size / 2.] * 3)
         
         # get normal ref
         ref_xyz = torch.from_numpy(ref_xyz).float().cuda()
@@ -75,11 +75,11 @@ for category in _shapenet_categories:
         input_normal.jdata /= (input_normal.jdata.norm(dim=1, keepdim=True) + 1e-6) # avoid nan
 
         # _, f_idx, _ = pcu.closest_points_on_mesh(
-        #     grid.grid_to_world(grid.ijk.float()).jdata.cpu().numpy().astype(float), v.astype(float), f)
+        #     grid.voxel_to_world(grid.ijk.float()).jdata.cpu().numpy().astype(float), v.astype(float), f)
         # input_normal = fvdb.JaggedTensor([torch.from_numpy(n[f_idx])])        
                 
         # normalize xyz to conv-onet scale
-        xyz = grid.grid_to_world(grid.ijk.float()).jdata
+        xyz = grid.voxel_to_world(grid.ijk.float()).jdata
         xyz_norm = xyz * 128 / 100
         ref_xyz = ref_xyz * 128 / 100
         
@@ -87,25 +87,25 @@ for category in _shapenet_categories:
         if num_vox == 512:
             # not splatting
             target_voxel_size = 0.0025
-            target_grid = fvdb.sparse_grid_from_points(
+            target_grid = fvdb.GridBatch.from_points(
                     fvdb.JaggedTensor(xyz_norm), voxel_sizes=target_voxel_size, origins=[target_voxel_size / 2.] * 3)
         elif num_vox == 16:
             # splatting
             target_voxel_size = 0.08
-            target_grid = fvdb.sparse_grid_from_nearest_voxels_to_points(
+            target_grid = fvdb.GridBatch.from_nearest_voxels_to_points(
                         fvdb.JaggedTensor(xyz_norm), voxel_sizes=target_voxel_size, origins=[target_voxel_size / 2.] * 3)
         elif num_vox == 128:
             # splatting
             target_voxel_size = 0.01
-            target_grid = fvdb.sparse_grid_from_nearest_voxels_to_points(
+            target_grid = fvdb.GridBatch.from_nearest_voxels_to_points(
                         fvdb.JaggedTensor(xyz_norm), voxel_sizes=target_voxel_size, origins=[target_voxel_size / 2.] * 3)
         elif num_vox == 256:
             target_voxel_size = 0.005
-            target_grid = fvdb.sparse_grid_from_nearest_voxels_to_points(
+            target_grid = fvdb.GridBatch.from_nearest_voxels_to_points(
                         fvdb.JaggedTensor(xyz_norm), voxel_sizes=target_voxel_size, origins=[target_voxel_size / 2.] * 3)
         elif num_vox == 1024:
             target_voxel_size = 0.00125
-            target_grid = fvdb.sparse_grid_from_points(
+            target_grid = fvdb.GridBatch.from_points(
                         fvdb.JaggedTensor(xyz_norm), voxel_sizes=target_voxel_size, origins=[target_voxel_size / 2.] * 3)
         else:
             raise NotImplementedError

@@ -112,10 +112,10 @@ class BaseField(ABC):
             if self.scale != 1.0:
                 xyz_chunk = xyz_chunk / self.scale
             f_chunk = self.evaluate_f(
-                JaggedTensor.from_data_and_jidx(xyz_chunk, jidx_chunk, batch_size), grad=False).value
+                JaggedTensor.from_data_and_indices(xyz_chunk, jidx_chunk, batch_size), grad=False).value
             f_bar_chunks.append(f_chunk - self.level_set)
 
-        return fvdb.cat(f_bar_chunks, dim=1)
+        return fvdb.jcat(f_bar_chunks, dim=1)
 
     def extract_primal_mesh(self, depth: int, resolution: int = 2, trim: bool = True, max_points: int = -1):
         primal_grid = self.svh.grids[depth]
@@ -125,7 +125,7 @@ class BaseField(ABC):
         dual_grid_dense = primal_grid_dense.dual_grid()
 
         dual_graph = meshing.primal_cube_graph(primal_grid_dense, dual_grid_dense)
-        dual_corner_pos = dual_grid_dense.grid_to_world(dual_grid_dense.active_grid_coords().float())
+        dual_corner_pos = dual_grid_dense.voxel_to_world(dual_grid_dense.active_grid_coords().float())
         if self.scale != 1.0:
             dual_corner_pos = dual_corner_pos * self.scale
         dual_corner_value = self.evaluate_f_bar(dual_corner_pos, max_points=max_points)
@@ -174,7 +174,7 @@ class BaseField(ABC):
         dual_grid = meshing.build_joint_dual_grid(flattened_grids)
         dmc_graph = meshing.dual_cube_graph(flattened_grids, dual_grid)
         dmc_vertices = torch.cat([
-            f_grid.grid_to_world(f_grid.ijk.float()).jdata
+            f_grid.voxel_to_world(f_grid.ijk.float()).jdata
             for f_grid in flattened_grids if f_grid.total_voxels > 0
         ], dim=0)
         del flattened_grids, dual_grid

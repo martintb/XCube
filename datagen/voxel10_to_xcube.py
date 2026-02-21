@@ -297,7 +297,7 @@ def build_xcube_sample(
 
     ref_xyz = (ijk.to(torch.float32) + 0.5) * voxel_size
 
-    sparse_grid = fvdb.sparse_grid_from_ijk(
+    sparse_grid = fvdb.GridBatch.from_ijk(
         fvdb.JaggedTensor([ijk]), voxel_sizes=voxel_size, origins=origin
     )
 

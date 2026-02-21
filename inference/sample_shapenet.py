@@ -8,7 +8,7 @@ import numpy as np
 import pickle
 from loguru import logger 
 import random
-from fvdb.nn import VDBTensor
+from xcube.utils.vdb_tensor import VDBTensor
 from pathlib import Path
 from datetime import datetime
 import trimesh
@@ -21,7 +21,9 @@ from xcube.utils import exp
 
 def get_default_parser():
     default_parser = argparse.ArgumentParser(add_help=False)
-    default_parser = pl.Trainer.add_argparse_args(default_parser)
+    default_parser.add_argument('--gpus', default=None, type=int, help='Number of GPUs to use.')
+    default_parser.add_argument('--accelerator', default=None, type=str, help='Accelerator type.')
+    default_parser.add_argument('--devices', default=None, type=int, help='Number of devices.')
     return default_parser
 
 def create_model_from_args(config_path, ckpt_path, strict=True):
@@ -130,10 +132,10 @@ with torch.no_grad():
         for batch_idx in range(output_x.grid.grid_count):
             ## coarse stage
             result_dict = {}
-            result_dict['coarse_xyz'] = output_x_coarse.grid.grid_to_world(output_x_coarse.grid[batch_idx].ijk.float()).jdata.cpu().numpy()
+            result_dict['coarse_xyz'] = output_x_coarse.grid.voxel_to_world(output_x_coarse.grid[batch_idx].ijk.float()).jdata.cpu().numpy()
             result_dict['coarse_normal'] = res_coarse.normal_features[-1].feature[batch_idx].jdata.cpu().numpy() 
             ## fine stage
-            result_dict['fine_xyz'] = output_x.grid.grid_to_world(output_x.grid[batch_idx].ijk.float()).jdata.cpu().numpy()
+            result_dict['fine_xyz'] = output_x.grid.voxel_to_world(output_x.grid[batch_idx].ijk.float()).jdata.cpu().numpy()
             result_dict['fine_normal'] = res.normal_features[-1].feature[batch_idx].jdata.cpu().numpy()
 
             # save result_dict
@@ -142,7 +144,7 @@ with torch.no_grad():
                     
             # extract mesh from grid
             if known_args.extract_mesh:
-                # pd_xyz = output_x.grid.grid_to_world(output_x.grid[batch_idx].ijk.float()).jdata
+                # pd_xyz = output_x.grid.voxel_to_world(output_x.grid[batch_idx].ijk.float()).jdata
                 pd_grid = output_x.grid[batch_idx]
                 pd_normal = res.normal_features[-1].feature[batch_idx].jdata
                 with torch.no_grad():

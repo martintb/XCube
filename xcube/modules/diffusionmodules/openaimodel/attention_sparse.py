@@ -4,13 +4,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 from einops import rearrange, repeat
-from fvdb.nn import ElementwiseMixin, VDBTensor
+from xcube.utils.vdb_tensor import VDBTensor
 
 from xcube.modules.diffusionmodules.openaimodel.util import checkpoint, conv_nd
 
 import fvdb
 import fvdb.nn as fvnn
-from fvdb.nn import VDBTensor
 
 def exists(val):
     return val is not None
@@ -36,8 +35,15 @@ def init_(tensor):
     tensor.uniform_(-std, std)
     return tensor
 
-class GELU(ElementwiseMixin, nn.GELU):
-    pass
+class GELU(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self._gelu = nn.GELU()
+
+    def forward(self, x):
+        if isinstance(x, VDBTensor):
+            return VDBTensor(x.grid, x.grid.jagged_like(self._gelu(x.feature.jdata)), x.kmap)
+        return self._gelu(x)
 
 class LayerNorm(nn.LayerNorm):
     def forward(self, input: VDBTensor) -> VDBTensor:

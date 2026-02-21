@@ -1,0 +1,59 @@
+[project]
+name = "xcube"
+version = "0.1.0"
+description = "Large-scale 3D generative modeling with sparse voxel hierarchies"
+requires-python = ">=3.12"
+dependencies = [
+    # Core ML (torch excluded — must install from CUDA-specific index first)
+    "pytorch-lightning>=2.4,<3",
+    "tensorboard",
+
+    # Config & serialization
+    "omegaconf",
+    "flatten-dict",
+    "pyyaml",
+
+    # Logging & monitoring
+    "wandb",
+    "loguru",
+    "pynvml",
+    "rich",
+
+    # Data & scientific
+    "numpy",
+    "pandas",
+    "scipy",
+    "matplotlib",
+    "tqdm",
+
+    # 3D / point cloud
+    "point_cloud_utils>=0.29.5",
+    "trimesh",
+    "polyscope",
+
+    # ML utilities
+    "einops",
+    "transformers",
+
+    # Experiment framework
+    "python-pycg",
+
+    # Misc
+    "randomname",
+    "gdown",
+    "gitpython",
+    "packaging",
+    "linkify-it-py",
+    "ipython",
+    "glob2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-benchmark", "pytest-cov"]
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["xcube*"]

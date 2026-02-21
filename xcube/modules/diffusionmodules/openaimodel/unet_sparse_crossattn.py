@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 import fvdb
 import fvdb.nn as fvnn
-from fvdb.nn import VDBTensor
+from xcube.utils.vdb_tensor import VDBTensor
 
 from xcube.modules.diffusionmodules.openaimodel.attention_sparse import SpatialTransformer
 

@@ -49,21 +49,21 @@ class KitchenSinkMetricLoss:
             ijk_coords = grid.ijk
             d_expand = expand if d != svh.depth - 1 else expand_top
             if d_expand >= 3:
-                ijk_coords = fvdb.sparse_grid_from_ijk(
+                ijk_coords = fvdb.GridBatch.from_ijk(
                     ijk_coords, 
                     pad_min=[-d_expand // 2] * 3, pad_max=[d_expand // 2] * 3,
                     voxel_sizes=grid.voxel_sizes, origins=grid.origins).ijk
-            base_coords.append(grid.grid_to_world(ijk_coords.float()))
+            base_coords.append(grid.voxel_to_world(ijk_coords.float()))
             base_scales.append(ijk_coords.jagged_like(grid.voxel_sizes[ijk_coords.jidx.int()]))
 
-        base_coords = fvdb.cat(base_coords, dim=1)
-        base_scales = fvdb.cat(base_scales, dim=1)
+        base_coords = fvdb.jcat(base_coords, dim=1)
+        base_scales = fvdb.jcat(base_scales, dim=1)
 
         local_ids = (torch.rand((n_samples, ), device=svh.device) * base_coords.jdata.size(0)).long()
         local_coords = (torch.rand((n_samples, 3), device=svh.device) - 0.5) * base_scales.jdata[local_ids]
         query_jidx = base_coords.jidx[local_ids]
         query_pos = base_coords.jdata[local_ids] + local_coords
-        return JaggedTensor.from_data_and_jidx(query_pos, query_jidx, svh.grids[-1].grid_count)
+        return JaggedTensor.from_data_and_indices(query_pos, query_jidx, svh.grids[-1].grid_count)
 
     @classmethod
     def _get_samples(cls, hparams, configs, svh, ref_xyz, ref_normal):
@@ -80,8 +80,8 @@ class KitchenSinkMetricLoss:
                 band_pos = ref_xyz.jdata[band_inds] + \
                     ref_normal.jdata[band_inds] * \
                         torch.randn((config.n_samples, 1), device=ref_xyz.jdata.device) * eps
-                all_samples.append(JaggedTensor.from_data_and_jidx(band_pos, sample_jidx, svh.grids[-1].grid_count))
-        return fvdb.cat(all_samples, dim=1)
+                all_samples.append(JaggedTensor.from_data_and_indices(band_pos, sample_jidx, svh.grids[-1].grid_count))
+        return fvdb.jcat(all_samples, dim=1)
 
     @classmethod
     def transform_field(cls, hparams, field: JaggedTensor):
@@ -228,12 +228,12 @@ class GTSurfaceLoss(KitchenSinkMetricLoss):
 
             batch_size = ref_xyz.joffsets.size(0)
             ref_jidx = ref_xyz.jidx[ref_xyz_inds]
-            ref_xyz = JaggedTensor.from_data_and_jidx(ref_xyz.jdata[ref_xyz_inds], ref_jidx, batch_size)
+            ref_xyz = JaggedTensor.from_data_and_indices(ref_xyz.jdata[ref_xyz_inds], ref_jidx, batch_size)
 
             eval_res = field.evaluate_f(ref_xyz, grad=compute_grad)
 
             if compute_grad:
-                ref_normal = JaggedTensor.from_data_and_jidx(ref_normal.jdata[ref_xyz_inds], ref_jidx, batch_size)
+                ref_normal = JaggedTensor.from_data_and_indices(ref_normal.jdata[ref_xyz_inds], ref_jidx, batch_size)
                 pd_grad = eval_res.gradient.jdata
                 pd_grad = -pd_grad / (torch.linalg.norm(pd_grad, dim=-1, keepdim=True) + 1.0e-6)
                 loss_dict.add_loss('gt-surface-normal',

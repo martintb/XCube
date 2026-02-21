@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import fvdb
 import fvdb.nn as fvnn
 import numpy as np
+from xcube.utils.vdb_tensor import VDBTensor
 
 from xcube.utils.color_util import color_from_points, semantic_from_points
 from xcube.utils.loss_util import TorchLossMeter
@@ -29,7 +30,7 @@ class Loss(nn.Module):
         field = torch.tanh(field / truncation_size) * truncation_size
         return field
     
-    def cross_entropy(self, pd_struct: fvnn.VDBTensor, gt_grid: fvdb.GridBatch, dynamic_grid: fvdb.GridBatch = None):
+    def cross_entropy(self, pd_struct: VDBTensor, gt_grid: fvdb.GridBatch, dynamic_grid: fvdb.GridBatch = None):
         assert torch.allclose(pd_struct.grid.origins, gt_grid.origins)
         assert torch.allclose(pd_struct.grid.voxel_sizes, gt_grid.voxel_sizes)
         idx_mask = gt_grid.ijk_to_index(pd_struct.grid.ijk).jdata == -1
@@ -42,7 +43,7 @@ class Loss(nn.Module):
             loss = F.cross_entropy(pd_struct.feature.jdata, idx_mask)
         return 0.0 if idx_mask.size(0) == 0 else loss
     
-    def struct_acc(self, pd_struct: fvnn.VDBTensor, gt_grid: fvdb.GridBatch):
+    def struct_acc(self, pd_struct: VDBTensor, gt_grid: fvdb.GridBatch):
         assert torch.allclose(pd_struct.grid.origins, gt_grid.origins)
         assert torch.allclose(pd_struct.grid.voxel_sizes, gt_grid.voxel_sizes)
         idx_mask = gt_grid.ijk_to_index(pd_struct.grid.ijk).jdata == -1
@@ -59,10 +60,10 @@ class Loss(nn.Module):
             ious.append(inter / (upi[i] - inter + 1.0e-6))
         return np.mean(ious)
 
-    def normal_loss(self, batch, normal_feats: fvnn.VDBTensor, eps=1e-6):
+    def normal_loss(self, batch, normal_feats: VDBTensor, eps=1e-6):
         if self.hparams.use_fvdb_loader:
             ref_grid = batch['input_grid']
-            ref_xyz = ref_grid.grid_to_world(ref_grid.ijk.float()) 
+            ref_xyz = ref_grid.voxel_to_world(ref_grid.ijk.float()) 
         else:
             ref_xyz = fvdb.JaggedTensor(batch[DS.INPUT_PC])
         
@@ -72,16 +73,16 @@ class Loss(nn.Module):
         normal_loss = F.l1_loss(gt_normal.jdata, normal_feats.feature.jdata)
         return normal_loss
     
-    def color_loss(self, batch, color_feats: fvnn.VDBTensor):
+    def color_loss(self, batch, color_feats: VDBTensor):
         assert self.hparams.use_fvdb_loader is True
         # check if color_feats is empty
         if color_feats.grid.total_voxels == 0:
             return 0.0
         ref_grid = batch['input_grid']
-        ref_xyz = ref_grid.grid_to_world(ref_grid.ijk.float())
+        ref_xyz = ref_grid.voxel_to_world(ref_grid.ijk.float())
         ref_color = fvdb.JaggedTensor(batch[DS.INPUT_COLOR])
         
-        target_xyz = color_feats.grid.grid_to_world(color_feats.grid.ijk.float())
+        target_xyz = color_feats.grid.voxel_to_world(color_feats.grid.ijk.float())
         target_color = []
         slect_color_feats = []
         for batch_idx in range(ref_grid.grid_count):
@@ -97,18 +98,18 @@ class Loss(nn.Module):
         color_loss = F.l1_loss(slect_color_feats.jdata, target_color.jdata)
         return color_loss
     
-    def semantic_loss(self, batch, semantic_feats: fvnn.VDBTensor):
+    def semantic_loss(self, batch, semantic_feats: VDBTensor):
         assert self.hparams.use_fvdb_loader is True
         # check if semantic_feats is empty
         if semantic_feats.grid.total_voxels == 0:
             return 0.0
         ref_grid = batch['input_grid']
-        ref_xyz = ref_grid.grid_to_world(ref_grid.ijk.float())
+        ref_xyz = ref_grid.voxel_to_world(ref_grid.ijk.float())
         ref_semantic = fvdb.JaggedTensor(batch[DS.GT_SEMANTIC])
         if ref_semantic.jdata.size(0) == 0: # if all samples in this batch is without semantic
             return 0.0
                 
-        target_xyz = semantic_feats.grid.grid_to_world(semantic_feats.grid.ijk.float())       
+        target_xyz = semantic_feats.grid.voxel_to_world(semantic_feats.grid.ijk.float())       
         target_semantic = []
         slect_semantic_feats = []
         for batch_idx in range(ref_grid.grid_count):

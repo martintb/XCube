@@ -208,8 +208,13 @@ class BaseModel(pl.LightningModule):
         grad_clip_val = self.hparams.get('grad_clip', 1000.)
 
         if grad_clip_val == "inspect":
-            from pytorch_lightning.utilities.grads import grad_norm
-            grad_dict = grad_norm(self, 'inf')      # Get the maximum absolute value.
+            # Inline grad_norm (removed in PL 2.x)
+            norms = [p.grad.data.norm(float('inf')) for p in self.parameters() if p.grad is not None]
+            if norms:
+                total_norm = max(norms)
+            else:
+                total_norm = torch.tensor(0.0)
+            grad_dict = {'grad_inf_norm': total_norm}
             print(grad_dict)
             grad_clip_val = 1000.
 
@@ -239,8 +244,7 @@ class BaseModel(pl.LightningModule):
         # if has_nan_value_cnt > 0:
         #     exp.logger.warning(f"{has_nan_value_cnt} parameters get nan-gradient -- they are set to 0.")
 
-    def on_before_optimizer_step(self, optimizer, optimizer_idx):
-        # print("Optimizer", optimizer_idx, "Step")
+    def on_before_optimizer_step(self, optimizer):
         pass
 
     def on_fit_start(self):
@@ -253,11 +257,11 @@ class BaseModel(pl.LightningModule):
                 for metric_name, should_add_best in self.get_hparams_metrics():
                     hparams_metrics[metric_name] = 0.0
                     hparams_metrics[f'best/{metric_name}'] = 0.0
-                from pytorch_lightning.utilities.logger import (
-                    _convert_params, _flatten_dict)
-                hparams_dict = _convert_params(self.hparams)
-                hparams_dict = _flatten_dict(hparams_dict)
-                hparams_dict = self.trainer.logger._sanitize_params(hparams_dict)
+                from flatten_dict import flatten
+                hparams_dict = dict(self.hparams)
+                hparams_dict = flatten(hparams_dict, reducer='dot')
+                hparams_dict = {k: str(v) if not isinstance(v, (int, float, str, bool, torch.Tensor)) else v
+                                for k, v in hparams_dict.items()}
                 exp, ssi, sei = hparams(hparams_dict, hparams_metrics)
                 writer.add_summary(exp)
                 writer.add_summary(ssi)
@@ -412,10 +416,10 @@ class BaseModel(pl.LightningModule):
         np.ndarray: ["npy", np.save]
     }
 
-    def on_test_batch_start(self, batch: Any, batch_idx: int, dataloader_idx: int):
+    def on_test_batch_start(self, batch: Any, batch_idx: int, dataloader_idx: int = 0):
         self.log('batch-idx', batch_idx)
 
-    def on_test_batch_end(self, outputs, batch, batch_idx, dataloader_idx):
+    def on_test_batch_end(self, outputs, batch, batch_idx, dataloader_idx=0):
         if not self.last_test_valid:
             return
 

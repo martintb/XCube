@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
-from fvdb.nn import VDBTensor
+from xcube.utils.vdb_tensor import VDBTensor
 from loguru import logger
 from torch.autograd import Variable
 
@@ -390,7 +390,7 @@ class StructPredictionNet(nn.Module):
             self.color_head = SparseHead(n_features[1], 3, order, num_groups)
         
     @classmethod
-    def sparse_zero_padding(cls, in_x: fvnn.VDBTensor, target_grid: fvdb.GridBatch):
+    def sparse_zero_padding(cls, in_x: VDBTensor, target_grid: fvdb.GridBatch):
         source_grid = in_x.grid
         source_feature = in_x.feature.jdata
         assert torch.allclose(source_grid.origins, target_grid.origins)
@@ -400,18 +400,18 @@ class StructPredictionNet(nn.Module):
         in_idx = source_grid.ijk_to_index(target_grid.ijk).jdata
         in_mask = in_idx != -1
         out_feat[in_mask] = source_feature[in_idx[in_mask]]
-        return fvnn.VDBTensor(target_grid, target_grid.jagged_like(out_feat))
+        return VDBTensor(target_grid, target_grid.jagged_like(out_feat))
     
     @classmethod
-    def struct_to_mask(cls, struct_pred: fvnn.VDBTensor):
+    def struct_to_mask(cls, struct_pred: VDBTensor):
         # 0 is exist, 1 is non-exist
         mask = struct_pred.feature.jdata[:, 0] > struct_pred.feature.jdata[:, 1]
         return struct_pred.grid.jagged_like(mask)
 
     @classmethod
-    def cat(cls, x: fvnn.VDBTensor, y: fvnn.VDBTensor):
+    def cat(cls, x: VDBTensor, y: VDBTensor):
         assert x.grid == y.grid
-        return fvnn.VDBTensor(x.grid, x.grid.jagged_like(torch.cat([x.feature.jdata, y.feature.jdata], dim=1)))
+        return VDBTensor(x.grid, x.grid.jagged_like(torch.cat([x.feature.jdata, y.feature.jdata], dim=1)))
     
     class FeaturesSet:
         def __init__(self):
@@ -422,7 +422,7 @@ class StructPredictionNet(nn.Module):
             self.normal_features = {}
             self.semantic_features = {}
 
-    def _encode(self, x: fvnn.VDBTensor, hash_tree: dict, is_forward: bool = True, neck_bound=None):
+    def _encode(self, x: VDBTensor, hash_tree: dict, is_forward: bool = True, neck_bound=None):
         feat_depth = 0
         res = self.FeaturesSet()
         x = self.pre_conv(x)
@@ -443,14 +443,14 @@ class StructPredictionNet(nn.Module):
                 else:        
                     low_bound = [-res for res in neck_bound]
                     voxel_bound = [res * 2 for res in neck_bound]
-            neck_grid = fvdb.sparse_grid_from_dense(
+            neck_grid = fvdb.GridBatch.from_dense(
                 x.grid.grid_count, 
                 voxel_bound, 
                 low_bound,
                 device="cpu",
                 voxel_sizes=voxel_size,
                 origins=origins).to(x.device)
-            x = fvnn.VDBTensor(neck_grid, neck_grid.fill_to_grid(x.feature, x.grid, 0.0))
+            x = VDBTensor(neck_grid, neck_grid.inject_from(x.feature, x.grid, 0.0))
         else:
             raise NotImplementedError
 
@@ -461,10 +461,10 @@ class StructPredictionNet(nn.Module):
 
         return res, x, mu, log_sigma
     
-    def encode(self, x: fvnn.VDBTensor, hash_tree: dict, neck_bound=None):
+    def encode(self, x: VDBTensor, hash_tree: dict, neck_bound=None):
         return self._encode(x, hash_tree, True, neck_bound)
     
-    def decode(self, res: FeaturesSet, x: fvnn.VDBTensor, is_testing=False):
+    def decode(self, res: FeaturesSet, x: VDBTensor, is_testing=False):
         for module in self.post_kl_bottleneck:
             x, _ = module(x)
         
@@ -511,7 +511,7 @@ class StructPredictionNet(nn.Module):
         
         return res, x
     
-    def forward(self, x: fvnn.VDBTensor, hash_tree: dict, noise_step: int = 0, noise_scheduler = None, neck_bound = None):
+    def forward(self, x: VDBTensor, hash_tree: dict, noise_step: int = 0, noise_scheduler = None, neck_bound = None):
         dist_features = []
         res, x, mu, log_sigma = self.encode(x, hash_tree, neck_bound=neck_bound)
         dist_features.append((mu, log_sigma))
@@ -521,6 +521,6 @@ class StructPredictionNet(nn.Module):
             noise = torch.randn_like(posterior)
             posterior = noise_scheduler.add_noise(posterior, noise, torch.tensor([noise_step]))
 
-        x = fvnn.VDBTensor(x.grid, x.grid.jagged_like(posterior))
+        x = VDBTensor(x.grid, x.grid.jagged_like(posterior))
         res, x = self.decode(res, x)
         return res, x, dist_features

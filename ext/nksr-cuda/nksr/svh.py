@@ -54,14 +54,14 @@ class SparseFeatureHierarchy:
 
     def get_voxel_centers(self, depth: int):
         grid = self.grids[depth]
-        return grid.grid_to_world(grid.ijk.float())
+        return grid.voxel_to_world(grid.ijk.float())
 
     def get_f_bound(self):
         grid = self.grids[self.depth - 1]
         assert grid.grid_count == 1, "Only support single batch element!"
         grid_coords = grid.ijk.float().jdata
-        min_extent = grid.grid_to_world(torch.min(grid_coords, dim=0).values.unsqueeze(0) - 1.5).jdata[0]
-        max_extent = grid.grid_to_world(torch.max(grid_coords, dim=0).values.unsqueeze(0) + 1.5).jdata[0]
+        min_extent = grid.voxel_to_world(torch.min(grid_coords, dim=0).values.unsqueeze(0) - 1.5).jdata[0]
+        max_extent = grid.voxel_to_world(torch.max(grid_coords, dim=0).values.unsqueeze(0) + 1.5).jdata[0]
         return min_extent, max_extent
 
     def evaluate_voxel_status(self, grid: GridBatch, depth: int):
@@ -94,7 +94,7 @@ class SparseFeatureHierarchy:
         query_pos = primal_coords.jdata.unsqueeze(1) + box_coords.unsqueeze(0)
         query_pos = fvdb.JaggedTensor.from_data_and_offsets(
             query_pos.view(-1, 3), primal_coords.joffsets * box_coords.size(0))
-        return grid.grid_to_world(query_pos), primal_coords
+        return grid.voxel_to_world(query_pos), primal_coords
 
     def get_visualization(self, batch_idx: int = 0):
         from pycg import vis
@@ -105,8 +105,8 @@ class SparseFeatureHierarchy:
             primal_coords = target_grid.ijk.float()
             is_lowest = len(wire_blocks) == 0
             wire_blocks.append(vis.wireframe_bbox(
-                target_grid.grid_to_world(primal_coords - (0.45 if is_lowest else 0.5)).jdata,
-                target_grid.grid_to_world(primal_coords + (0.45 if is_lowest else 0.5)).jdata,
+                target_grid.voxel_to_world(primal_coords - (0.45 if is_lowest else 0.5)).jdata,
+                target_grid.voxel_to_world(primal_coords + (0.45 if is_lowest else 0.5)).jdata,
                 ucid=d, solid=is_lowest
             ))
         return wire_blocks
@@ -125,7 +125,7 @@ class SparseFeatureHierarchy:
                 test_pos = torch.stack(torch.meshgrid(test_pos, test_pos, test_pos, indexing='ij'), dim=3)
                 test_pos = test_pos.view(-1, 3) * 0.99
                 test_pos = grid.ijk.jdata.unsqueeze(1) + test_pos.unsqueeze(0)
-                test_pos = iso @ grid.grid_to_world(test_pos.view(-1, 3)).jdata
+                test_pos = iso @ grid.voxel_to_world(test_pos.view(-1, 3)).jdata
                 test_pos = ((test_pos - orig) / vs).round().long()
                 test_pos = torch.unique(test_pos, dim=0)
                 d_samples.append(test_pos)
@@ -143,7 +143,7 @@ class SparseFeatureHierarchy:
     def build_iterative_coarsening(self, pts: fvdb.JaggedTensor):
         assert pts.device == self.device, f"Device not match {pts.device} vs {self.device}."
         vs, vo = self.get_grid_voxel_size_origin(0)
-        self.grids[0] = fvdb.sparse_grid_from_points(
+        self.grids[0] = fvdb.GridBatch.from_points(
             pts, voxel_sizes=[vs] * 3, origins=[vo] * 3)
         for d in range(1, self.depth):
             self.grids[d] = self.grids[d - 1].coarsened_grid(2)
@@ -152,20 +152,20 @@ class SparseFeatureHierarchy:
         assert pts.device == self.device, f"Device not match {pts.device} vs {self.device}."
         for d in range(self.depth):
             vs, vo = self.get_grid_voxel_size_origin(d)
-            self.grids[d] = fvdb.sparse_grid_from_nearest_voxels_to_points(
+            self.grids[d] = fvdb.GridBatch.from_nearest_voxels_to_points(
                 pts, voxel_sizes=[vs] * 3, origins=[vo] * 3)
             
     def build_grid_splatting(self, grid: fvdb.GridBatch):
         assert grid.device == self.device, f"Device not match {grid.device} vs {self.device}."
-        pts = grid.grid_to_world(grid.ijk.float())
+        pts = grid.voxel_to_world(grid.ijk.float())
         for d in range(self.depth):
             vs, vo = self.get_grid_voxel_size_origin(d)
             if d == 0:
                 # Make sure no excessive grids are generated.
-                self.grids[d] = fvdb.sparse_grid_from_points(
+                self.grids[d] = fvdb.GridBatch.from_points(
                     pts, voxel_sizes=[vs] * 3, origins=[vo] * 3)
             else:
-                self.grids[d] = fvdb.sparse_grid_from_nearest_voxels_to_points(
+                self.grids[d] = fvdb.GridBatch.from_nearest_voxels_to_points(
                     pts, voxel_sizes=[vs] * 3, origins=[vo] * 3)
 
     def build_adaptive_normal_variation(self, pts: fvdb.JaggedTensor, normal: fvdb.JaggedTensor,
@@ -191,11 +191,11 @@ class SparseFeatureHierarchy:
                 return
 
             vs, vo = self.get_grid_voxel_size_origin(d)
-            self.grids[d] = fvdb.sparse_grid_from_nearest_voxels_to_points(
+            self.grids[d] = fvdb.GridBatch.from_nearest_voxels_to_points(
                 pts, voxel_sizes=[vs] * 3, origins=[vo] * 3)
 
             if 0 < d < adaptive_depth:
-                inv_mapping = self.grids[d].ijk_to_index(self.grids[d].world_to_grid(pts).round().int()).jdata
+                inv_mapping = self.grids[d].ijk_to_index(self.grids[d].world_to_voxel(pts).round().int()).jdata
 
     def build_from_grid_coords(self, depth: int, grid_coords: fvdb.JaggedTensor,
                                pad_min: list = None, pad_max: list = None):
@@ -208,7 +208,7 @@ class SparseFeatureHierarchy:
         assert grid_coords.device == self.device, "Device not match"
         assert self.grids[depth].total_voxels == 0, "Grid is not empty"
         vs, vo = self.get_grid_voxel_size_origin(depth)
-        self.grids[depth] = fvdb.sparse_grid_from_ijk(
+        self.grids[depth] = fvdb.GridBatch.from_ijk(
             grid_coords, pad_min, pad_max, voxel_sizes=[vs] * 3, origins=[vo] * 3)
 
     def build_from_grid(self, depth: int, grid: GridBatch):

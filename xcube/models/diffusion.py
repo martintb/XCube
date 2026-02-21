@@ -12,8 +12,8 @@ from contextlib import contextmanager
 import os
 
 import fvdb
-from fvdb.nn import VDBTensor
 from fvdb import GridBatch
+from xcube.utils.vdb_tensor import VDBTensor
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import omegaconf
 from pathlib import Path
-from pytorch_lightning.utilities.distributed import rank_zero_only
+from pytorch_lightning.utilities import rank_zero_only
 
 from xcube.models.base_model import BaseModel
 from xcube.data.base import DatasetSpec as DS
@@ -331,12 +331,12 @@ class Model(BaseModel):
         # ! adm part
         # mask condition
         if self.hparams.use_mask_cond:
-            coords = noisy_latents.grid.grid_to_world(noisy_latents.grid.ijk.float())
+            coords = noisy_latents.grid.voxel_to_world(noisy_latents.grid.ijk.float())
             coords = VDBTensor(noisy_latents.grid, coords)
             cond = self.cond_stage_model(coords)
         # point condition
         if self.hparams.use_point_cond:
-            coords = noisy_latents.grid.grid_to_world(noisy_latents.grid.ijk.float()) # JaggedTensor
+            coords = noisy_latents.grid.voxel_to_world(noisy_latents.grid.ijk.float()) # JaggedTensor
             if self.hparams.network.cond_stage_model.use_normal:
                 if batch is not None: # training-time: get normal from batch
                     ref_xyz = fvdb.JaggedTensor(batch[DS.INPUT_PC])
@@ -393,12 +393,12 @@ class Model(BaseModel):
                 single_scan_feat = self.single_scan_pos_embedder(single_scan, single_scan_intensity, single_scan_grid)
                 single_scan_feat = VDBTensor(single_scan_grid, single_scan_feat)
             else:
-                single_scan_coords = single_scan_grid.grid_to_world(single_scan_grid.ijk.float()).jdata
+                single_scan_coords = single_scan_grid.voxel_to_world(single_scan_grid.ijk.float()).jdata
                 single_scan_feat = self.single_scan_pos_embedder(single_scan_coords)
                 single_scan_feat = VDBTensor(single_scan_grid, single_scan_grid.jagged_like(single_scan_feat))
             single_scan_cond = self.single_scan_cond_model(single_scan_feat, single_scan_hash_tree)
             # align this feature to the latent
-            single_scan_cond = noisy_latents.grid.fill_to_grid(single_scan_cond.feature, single_scan_cond.grid, 0.0)
+            single_scan_cond = noisy_latents.grid.inject_from(single_scan_cond.feature, single_scan_cond.grid, 0.0)
             if not is_testing and self.hparams.use_classifier_free:
                 single_scan_cond = self.conduct_classifier_free(single_scan_cond, noisy_latents.grid.grid_count, noisy_latents.grid.device)             
             concat_list.append(single_scan_cond)
@@ -406,8 +406,8 @@ class Model(BaseModel):
             # traing-time: get single scan crop from batch
             if batch is not None:
                 # assert self.hparams.use_fvdb_loader is True, "use_fvdb_loader should be True for normal concat condition"
-                ref_grid = fvdb.cat(batch[DS.INPUT_PC])    
-                ref_xyz = ref_grid.grid_to_world(ref_grid.ijk.float()) 
+                ref_grid = fvdb.gcat(batch[DS.INPUT_PC])    
+                ref_xyz = ref_grid.voxel_to_world(ref_grid.ijk.float()) 
                 concat_normal = noisy_latents.grid.splat_trilinear(ref_xyz, fvdb.JaggedTensor(batch[DS.TARGET_NORMAL]))
             else:
                 concat_normal = cond_dict['normal']
@@ -451,10 +451,10 @@ class Model(BaseModel):
             pos_embed = self.get_pos_embed_high(noisy_latents.grid.ijk.jdata)
             noisy_latents = VDBTensor.cat([noisy_latents, pos_embed], dim=1)
         elif self.hparams.use_pos_embed_world:
-            pos_embed = noisy_latents.grid.grid_to_world(noisy_latents.grid.ijk.float())
+            pos_embed = noisy_latents.grid.voxel_to_world(noisy_latents.grid.ijk.float())
             noisy_latents = VDBTensor.cat([noisy_latents, pos_embed], dim=1)
         elif self.hparams.use_pos_embed_world_high:
-            pos_embed = noisy_latents.grid.grid_to_world(noisy_latents.grid.ijk.float())
+            pos_embed = noisy_latents.grid.voxel_to_world(noisy_latents.grid.ijk.float())
             pos_embed = self.get_pos_embed_high(pos_embed.jdata)
             noisy_latents = VDBTensor.cat([noisy_latents, pos_embed], dim=1)
 
@@ -569,11 +569,11 @@ class Model(BaseModel):
         for batch_idx in range(output_x.grid.grid_count):
             # fineest level
             pd_grid_0 = grid_tree[0]
-            pd_xyz_0 = pd_grid_0.grid_to_world(self.get_random_sample_pcs(pd_grid_0.ijk[batch_idx], M=8))
+            pd_xyz_0 = pd_grid_0.voxel_to_world(self.get_random_sample_pcs(pd_grid_0.ijk[batch_idx], M=8))
             fine_list.append(pd_xyz_0.jdata.cpu().numpy())
             # coarsest level
             pd_grid_1 = grid_tree[len(grid_tree.keys()) - 1]
-            pd_xyz_1 = pd_grid_1.grid_to_world(self.get_random_sample_pcs(pd_grid_1.ijk[batch_idx], M=3))
+            pd_xyz_1 = pd_grid_1.voxel_to_world(self.get_random_sample_pcs(pd_grid_1.ijk[batch_idx], M=3))
             coarse_list.append(pd_xyz_1.jdata.cpu().numpy())
         # plot the fine and coarse level
         viz_fine = vis_pcs(fine_list)
@@ -692,7 +692,7 @@ class Model(BaseModel):
                 
                 voxel_sizes = [sv * gap for sv, gap in zip(self.vae.hparams.voxel_size, gap_strides)] # !: carefully setup
                 origins = [sv / 2. for sv in voxel_sizes]
-                grids = fvdb.sparse_grid_from_dense(
+                grids = fvdb.GridBatch.from_dense(
                                 batch_size, 
                                 voxel_bound, 
                                 low_bound, 
@@ -716,8 +716,8 @@ class Model(BaseModel):
         if self.hparams.use_normal_concat_cond:
             # traing-time: get single scan crop from batch
             if batch is not None:
-                ref_grid = fvdb.cat(batch[DS.INPUT_PC])    
-                ref_xyz = ref_grid.grid_to_world(ref_grid.ijk.float()) 
+                ref_grid = fvdb.gcat(batch[DS.INPUT_PC])    
+                ref_xyz = ref_grid.voxel_to_world(ref_grid.ijk.float()) 
                 concat_normal = grids.splat_trilinear(ref_xyz, fvdb.JaggedTensor(batch[DS.TARGET_NORMAL]))
             elif res_coarse is not None:
                 concat_normal = res_coarse.normal_features[-1].feature # N, 3

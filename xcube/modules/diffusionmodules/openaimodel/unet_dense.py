@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 import fvdb
 import fvdb.nn as fvnn
-from fvdb.nn import VDBTensor
+from xcube.utils.vdb_tensor import VDBTensor
 
 from xcube.modules.diffusionmodules.openaimodel.util import (
     checkpoint,
@@ -673,4 +673,4 @@ class UNetModel(nn.Module):
             h = self.id_predictor(h)
         else:
             h = self.out(h)
-        return VDBTensor(data.grid, data.grid.read_from_dense(h.permute(0, 2, 3, 4, 1).contiguous(), dense_origins=th.min(data.grid.ijk.jdata, dim=0)[0])) # TODO: cube to rec
+        return VDBTensor(data.grid, data.grid.inject_from_dense_cminor(h.permute(0, 2, 3, 4, 1).contiguous(), dense_origins=th.min(data.grid.ijk.jdata, dim=0)[0])) # TODO: cube to rec

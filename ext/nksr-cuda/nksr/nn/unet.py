@@ -14,7 +14,7 @@ from nksr.svh import SparseFeatureHierarchy, VoxelStatus
 import fvdb
 from fvdb import JaggedTensor, GridBatch
 import fvdb.nn as fvnn
-from fvdb.nn import VDBTensor
+from xcube.utils.vdb_tensor import VDBTensor
 
 
 class SparseConvBlock(nn.Sequential):
@@ -284,11 +284,11 @@ class SparseStructureNet(nn.Module):
             if not torch.any(exist_mask):
                 break
 
-            dec_ijk = decoder_tmp_svh.grids[feat_depth].ijk.r_masked_select(exist_mask)
+            dec_ijk = decoder_tmp_svh.grids[feat_depth].ijk.pruned_grid(exist_mask)
             decoder_svh.build_from_grid_coords(feat_depth, dec_ijk)
 
             vdb_tensor = self.padding(vdb_tensor, decoder_svh.grids[feat_depth])
-            upsample_mask = decoder_svh.grids[feat_depth].fill_to_grid(
+            upsample_mask = decoder_svh.grids[feat_depth].inject_from(
                 (struct_decision == VoxelStatus.VS_EXIST_CONTINUE.value).float(),
                 decoder_tmp_svh.grids[feat_depth]
             ).type(torch.bool)

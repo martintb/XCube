@@ -17,7 +17,7 @@ import traceback
 import uuid
 from pathlib import Path
 from test import OverfitLoggerNull
-from typing import List, Optional
+from typing import List
 import random
 
 import pytorch_lightning as pl
@@ -26,21 +26,14 @@ import wandb
 import yaml
 from loguru import logger as loguru_logger
 from omegaconf import OmegaConf
-from packaging import version
 from pycg import exp
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import Callback, LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
-from pytorch_lightning.plugins.training_type.dp import DataParallelPlugin
+from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
-from torch.nn import DataParallel
 
 from xcube.utils import wandb_util
-
-if version.parse(pl.__version__) > version.parse('1.8.0'):
-    from pytorch_lightning.callbacks import Callback
-else:
-    from pytorch_lightning.callbacks.base import Callback
 
 
 class CopyModelFileCallback(Callback):
@@ -53,32 +46,6 @@ class CopyModelFileCallback(Callback):
             if self.target_path.parent.exists():
                 shutil.move(self.source_path, self.target_path)
 
-
-class CustomizedDataParallel(DataParallel):
-    def scatter(self, inputs, kwargs, device_ids):
-        inputs = self.module.module.dp_scatter(inputs, device_ids, self.dim) if inputs else []
-        kwargs = self.module.module.dp_scatter(kwargs, device_ids, self.dim) if kwargs else []
-        if len(inputs) < len(kwargs):
-            inputs.extend([() for _ in range(len(kwargs) - len(inputs))])
-        elif len(kwargs) < len(inputs):
-            kwargs.extend([{} for _ in range(len(inputs) - len(kwargs))])
-        inputs = tuple(inputs)
-        kwargs = tuple(kwargs)
-        return inputs, kwargs
-
-
-class CustomizedDataParallelPlugin(DataParallelPlugin):
-    def __init__(self, parallel_devices: Optional[List[torch.device]]):
-        # Parallel devices will be later populated in accelerator. Well done!
-        super().__init__(parallel_devices=parallel_devices)
-
-    def setup(self, model):
-        from pytorch_lightning.overrides.data_parallel import \
-            LightningParallelModule
-
-        # model needs to be moved to the device before it is wrapped
-        model.to(self.root_device)
-        self._model = CustomizedDataParallel(LightningParallelModule(model), self.parallel_devices)
 
 
 def determine_usable_gpus():
@@ -164,9 +131,13 @@ if __name__ == '__main__':
     program_parser.add_argument('--resume_from_ckpt', default=None, type=str, help='checkpoint path we want to load')
     program_parser.add_argument('--model_precision', default=32, help='Model precision to use.')
     program_parser.add_argument('--seed', type=int, default=0, help='Set a random seed.')
-    program_parser = pl.Trainer.add_argparse_args(program_parser)
-    # Remove some args, which we think should be model-based.
-    remove_option(program_parser, '--accumulate_grad_batches')
+    program_parser.add_argument('--gpus', default=None, type=int, help='Number of GPUs to use.')
+    program_parser.add_argument('--max_epochs', default=None, type=int, help='Maximum number of epochs.')
+    program_parser.add_argument('--accelerator', default=None, type=str, help='Accelerator type.')
+    program_parser.add_argument('--strategy', default=None, type=str, help='Training strategy.')
+    program_parser.add_argument('--devices', default=None, type=int, help='Number of devices.')
+    program_parser.add_argument('--num_nodes', default=1, type=int, help='Number of nodes.')
+    program_parser.add_argument('--precision', default=None, type=str, help='Training precision.')
     program_args, other_args = program_parser.parse_known_args()
 
 
@@ -212,27 +183,12 @@ if __name__ == '__main__':
     if is_rank_zero():
         # Detect usable GPUs.
         determine_usable_gpus()
-        # Wandb version check
-        if program_args.gpus > 1 and program_args.accelerator is None:
-            if version.parse(pl.__version__) > version.parse('1.8.0'):
-                program_args.strategy = 'ddp'
-                program_args.accelerator = "gpu"
-            else:
-                program_args.accelerator = 'ddp'
 
-        if version.parse(pl.__version__) > version.parse('1.5.0'):
-            program_args.devices = program_args.gpus
-            del program_args.gpus
-            program_args.accelerator = "gpu"
-    else:
-        # Align parameters.
-        if version.parse(pl.__version__) > version.parse('1.8.0'):
-            program_args.strategy = 'ddp'
-            program_args.accelerator = "gpu"
-            program_args.devices = program_args.gpus
-            del program_args.gpus
-        else:
-            program_args.accelerator = 'ddp'
+    if program_args.gpus is not None and program_args.gpus > 1:
+        program_args.strategy = 'ddp'
+    program_args.accelerator = "gpu"
+    program_args.devices = program_args.gpus
+    del program_args.gpus
 
 
     # Profiling and debugging options
@@ -261,17 +217,8 @@ if __name__ == '__main__':
     lr_record_callback = LearningRateMonitor(logging_interval='step')
     copy_model_file_callback = CopyModelFileCallback()
 
-    # Determine parallel plugin:
-    if program_args.accelerator == 'ddp':
-        if version.parse(pl.__version__) < version.parse('1.8.0'):
-            from pytorch_lightning.plugins import DDPPlugin
-            accelerator_plugins = [DDPPlugin(find_unused_parameters=False)]
-        else:
-            accelerator_plugins = []
-    elif program_args.accelerator == 'dp':
-        accelerator_plugins = [CustomizedDataParallelPlugin(None)]
-    else:
-        accelerator_plugins = []
+    # Determine strategy:
+    strategy = DDPStrategy(find_unused_parameters=False) if program_args.strategy == 'ddp' else 'auto'
 
     """""""""""""""""""""""""""""""""""""""""""""""
     [2] Determine model arguments
@@ -354,17 +301,25 @@ if __name__ == '__main__':
 
     pl.seed_everything(program_args.seed)
 
+    # Map precision values to PL 2.x format
+    precision_map = {32: "32-true", "32": "32-true", 16: "16-mixed", "16": "16-mixed"}
+    precision_val = precision_map.get(program_args.model_precision, program_args.model_precision)
+
     # Build trainer
-    trainer = pl.Trainer.from_argparse_args(
-        program_args,
+    trainer = pl.Trainer(
+        accelerator=program_args.accelerator,
+        devices=program_args.devices,
+        num_nodes=program_args.num_nodes,
+        strategy=strategy,
+        max_epochs=program_args.max_epochs,
         callbacks=[checkpoint_callback, lr_record_callback, copy_model_file_callback]
         if logger is not None else [checkpoint_callback],
         logger=logger,
         log_every_n_steps=20,
         check_val_every_n_epoch=program_args.eval_interval,
-        plugins=accelerator_plugins,
         accumulate_grad_batches=model_args.accumulate_grad_batches,
-        precision=program_args.model_precision)
+        precision=precision_val,
+    )
     # fix wandb global_step resume bug
     if program_args.resume:
         # get global step offset

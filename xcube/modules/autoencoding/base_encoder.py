@@ -51,12 +51,12 @@ class Encoder(nn.Module):
         else:
             input_color = None          
 
-        coords = grid.grid_to_world(grid.ijk.float()).jdata
+        coords = grid.voxel_to_world(grid.ijk.float()).jdata
         unet_feat = self.pos_embedder(coords)
         
         if self.hparams.use_input_normal:
             ref_grid = batch['input_grid']
-            ref_xyz = ref_grid.grid_to_world(ref_grid.ijk.float()) 
+            ref_xyz = ref_grid.voxel_to_world(ref_grid.ijk.float()) 
             # splatting normal
             input_normal = grid.splat_trilinear(ref_xyz, fvdb.JaggedTensor(input_normal))
             # normalize normal

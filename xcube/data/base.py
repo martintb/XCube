@@ -145,7 +145,7 @@ def list_collate(batch):
         transposed = zip(*batch)
         return [list_collate(samples) for samples in transposed]
     elif isinstance(elem, GridBatch):
-        return fvdb.cat(batch)
+        return fvdb.gcat(batch)
     
     # elif isinstance(elem, pathlib.Path):
     #     return batch

@@ -286,7 +286,7 @@ def extract_batch(jagged_tensor: JaggedTensor, batch_idx: int):
     jidx = jagged_tensor.jidx
     batch_size = jagged_tensor.joffsets.size(0)
 
-    return JaggedTensor.from_data_and_jidx(
+    return JaggedTensor.from_data_and_indices(
         jagged_tensor.jdata[jidx == batch_idx], jidx[jidx == batch_idx], batch_size
     )
 
@@ -295,7 +295,7 @@ def jwb(tensor: torch.Tensor, batch_idx: int, batch_size: int):
     """
     Jagged-tensor With Batch-idx (JWB)
     """
-    return JaggedTensor.from_data_and_jidx(
+    return JaggedTensor.from_data_and_indices(
         tensor, 
         torch.full((tensor.size(0), ), batch_idx, dtype=torch.int16, device=tensor.device), 
         batch_size

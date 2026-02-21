@@ -28,17 +28,18 @@ Supporting directories
 - `results/`: inference outputs
 
 ## Environment Setup (Linux + GPU)
-The repo uses Conda environments (packaging is outdated; do not modernize in this session).
+The repo uses **uv** with `pyproject.toml` for package management.
 
 Typical setup
-- Create env from `environment.yml` (PyTorch 2.2 + CUDA 12.1, Python 3.10).
-- Build/install fvdb from the OpenVDB fork/branch described in `README.md`.
-- Build mesh extraction CUDA extension at `ext/nksr-cuda`.
+- Run `bash scripts/install.sh` to create a venv and install all dependencies.
+- This installs PyTorch 2.8.0 + CUDA 12.6, fvdb-core 0.3.0 (built from source), XCube, and nksr CUDA extensions.
+- Activate with `source .venv/bin/activate`.
 
 Notes
-- fvdb requires recent NVIDIA GPUs (Ampere or newer).
-- Custom CUDA extensions are required for full functionality.
-- Some dependencies are pinned to specific versions (e.g., `point_cloud_utils==0.29.5`).
+- fvdb-core requires recent NVIDIA GPUs (Ampere or newer).
+- fvdb-core must be built from source (no pre-built cu126 wheels). The install script handles this.
+- Custom CUDA extensions (`ext/nksr-cuda`) are built with `--no-build-isolation` (they depend on installed torch/fvdb).
+- PyTorch Lightning 2.x is used (migrated from 1.9.4).
 
 ## Data & Checkpoints
 - Checkpoints are expected under `checkpoints/`.
@@ -75,7 +76,7 @@ Use scripts in `inference/`:
 ## Gotchas & Constraints
 - Linux-only support (per README).
 - GPU + CUDA toolchain required for fvdb and CUDA extensions.
-- This repo uses older Python packaging conventions (Conda + `environment.yml`). Avoid migrating to `pyproject.toml` or Poetry unless asked.
+- This repo uses uv + `pyproject.toml` for packaging. Install via `scripts/install.sh`.
 - Scripts sometimes assume large GPU memory and multi-GPU setups; reduce batch sizes and turn on grad accumulation if needed.
 
 ## How To Make Changes Safely

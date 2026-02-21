@@ -78,7 +78,7 @@ class PointNetEncoder(nn.Module):
                 grid: fvdb.GridBatch):
 
         # Get voxel idx
-        pts_xyz = grid.world_to_grid(pts_xyz)
+        pts_xyz = grid.world_to_voxel(pts_xyz)
         vid = grid.ijk_to_index(pts_xyz.round().int()).jdata
 
         # Map coordinates to local voxel

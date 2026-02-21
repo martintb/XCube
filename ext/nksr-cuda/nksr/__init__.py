@@ -302,8 +302,8 @@ class Reconstructor:
                 solver_max_iter=solver_max_iter,
                 solver_tol=solver_tol
             )
-            normal_xyz = fvdb.cat([svh.get_voxel_centers(d) for d in range(self.hparams.adaptive_depth)], dim=1)
-            normal_value = fvdb.cat([feat.normal_features[d] for d in range(self.hparams.adaptive_depth)], dim=1)
+            normal_xyz = fvdb.jcat([svh.get_voxel_centers(d) for d in range(self.hparams.adaptive_depth)], dim=1)
+            normal_value = fvdb.jcat([feat.normal_features[d] for d in range(self.hparams.adaptive_depth)], dim=1)
             normal_weight = self.hparams.solver.normal_weight * (self.hparams.voxel_size ** 2) / (normal_xyz.joffsets[:, 1] - normal_xyz.joffsets[:, 0])
             solve_kwargs = {
                 'pos_xyz': xyz, 'normal_xyz': normal_xyz, 'normal_value': -normal_value,

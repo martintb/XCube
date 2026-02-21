@@ -14,6 +14,7 @@ import fvdb
 import fvdb.nn as fvnn
 from fvdb import JaggedTensor
 from torch_scatter import scatter_max, scatter_mean
+from xcube.utils.vdb_tensor import VDBTensor
 
 from xcube.modules.autoencoding.sunet import SparseDoubleConv
 
@@ -66,13 +67,13 @@ class StructEncoder(nn.Module):
             ))
         self.out_conv = nn.Linear(n_features[-1], out_channels)
             
-    def encode(self, x: fvnn.VDBTensor):
+    def encode(self, x: VDBTensor):
         x = self.pre_conv(x)
         for module in self.encoders:
             x, _ = module(x)
         return x
     
-    def forward(self, x: fvnn.VDBTensor):
+    def forward(self, x: VDBTensor):
         x = self.encode(x)
         out, _ = scatter_max(x.feature.jdata, x.feature.jidx.long(), dim=0)
         out = self.out_conv(out)
@@ -102,19 +103,19 @@ class StructEncoder3D(nn.Module):
             ))
         self.out_conv = fvnn.Linear(n_features[-1], out_channels)
             
-    def encode(self, x: fvnn.VDBTensor, hash_tree: dict=None):
+    def encode(self, x: VDBTensor, hash_tree: dict=None):
         x = self.pre_conv(x)
         for module in self.encoders:
             x, _ = module(x)
         return x
     
-    def forward(self, x: fvnn.VDBTensor, hash_tree: dict=None):
+    def forward(self, x: VDBTensor, hash_tree: dict=None):
         x = self.encode(x, hash_tree)
         out = self.out_conv(x)
         return out
     
 class StructEncoder3D_v2(StructEncoder3D):
-    def encode(self, x: fvnn.VDBTensor, hash_tree: dict):
+    def encode(self, x: VDBTensor, hash_tree: dict):
         feat_depth = 0
         x = self.pre_conv(x)
         for module in self.encoders:
@@ -151,13 +152,13 @@ class StructEncoder3D_remain_h(nn.Module):
             ))
         self.out_conv = fvnn.Linear(n_features[-1], out_channels)
             
-    def encode(self, x: fvnn.VDBTensor):
+    def encode(self, x: VDBTensor):
         x = self.pre_conv(x)
         for module in self.encoders:
             x, _ = module(x)
         return x
     
-    def forward(self, x: fvnn.VDBTensor, hash_tree: dict=None):
+    def forward(self, x: VDBTensor, hash_tree: dict=None):
         x = self.encode(x)
         out = self.out_conv(x)
         return out

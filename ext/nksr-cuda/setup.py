@@ -4,7 +4,7 @@ import subprocess
 import sys
 from setuptools import find_packages, setup
 from torch.utils.cpp_extension import (CUDA_HOME, BuildExtension, CUDAExtension)
-from fvdb.utils.build_ext import FVDBExtension
+from fvdb.utils import fvdbCudaExtension
 
 with open("nksr/__init__.py", "r") as fh:
     __version__ = re.findall(r'__version__ = \'(.*?)\'', fh.read())[0]
@@ -68,7 +68,7 @@ def get_source_files(base_path):
     return [t for t in all_sources if t.endswith(".cu") or t.endswith(".cpp")]
 
 
-bind_ext = FVDBExtension(
+bind_ext = fvdbCudaExtension(
     name='nksr._C',
     sources=['csrc/bind.cpp'] +
             get_source_files("csrc/kernel_eval") +
@@ -87,7 +87,7 @@ setup(
     description='Neural Kernel Surface Reconstruction',
     author_email='huangjh.work@outlook.com',
     keywords=['nksr', '3d', 'reconstruction'],
-    python_requires='>=3.7',
+    python_requires='>=3.12',
     install_requires=['pykdtree', 'torch', 'python-pycg'],
     ext_modules=[bind_ext],
     cmdclass={

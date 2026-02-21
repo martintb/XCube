@@ -24,39 +24,37 @@ For any other questions related to the model, please contact Xuanchi or Jiahui.
 ## Environment setup
 Note that we currently only support Linux. We welcome support for other platforms.
 
-**(Optional) Install libMamba for a huge quality of life improvement when using Conda**
-```
-conda update -n base conda
-conda install -n base conda-libmamba-solver
-conda config --set solver libmamba
-```
+### Prerequisites
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) package manager
+- CUDA 12.6 compatible GPU (Ampere or newer)
+- CMake and a C++ compiler (for building fvdb-core from source)
 
-### Conda Environment
-```
+### Quick Install
+```bash
 # Clone the repository
 git clone git@github.com:nv-tlabs/XCube.git
 cd XCube
 
-# Create conda environment
-conda env create -f environment.yml
-conda activate xcube
+# Run the install script (creates venv, installs PyTorch, fvdb-core, XCube, and nksr)
+bash scripts/install.sh
 
-# Install fVDB (3D learning framework; require GPU later than Ampere)
-git clone https://github.com/AcademySoftwareFoundation/openvdb.git
-cd openvdb
-git fetch origin pull/1808/head:feature/fvdb
-git checkout feature/fvdb
-rm fvdb/setup.py && cp ../assets/setup.py fvdb/
-cd fvdb && pip install .
-cd ../..
-
-# Mesh extraction
-cd ext/nksr-cuda
-python setup.py develop
-cd ../..
+# Activate the environment
+source .venv/bin/activate
 ```
-### Docker Image
-For docker users, we suggest using a base image from [here](https://github.com/fwilliams/openvdb/tree/fw/fvdb/fvdb#docker-image), and applying the above conda setup over it.
+
+The install script performs these steps:
+1. Creates a Python 3.12 venv via uv
+2. Installs PyTorch 2.8.0 with CUDA 12.6
+3. Installs torch-scatter
+4. Builds fvdb-core 0.3.0 from source
+5. Installs XCube in editable mode
+6. Builds nksr CUDA extensions
+
+For headless nodes without a GPU, set `TORCH_CUDA_ARCH_LIST="8.0;8.6;9.0"` before running the script.
+
+### Manual Install
+If you prefer manual installation, see `scripts/install.sh` for the exact steps and build order.
 
 ## Quickstart
 Download pretrained checkpoints from [Google Drive](https://drive.google.com/drive/folders/1PEh0ofpSFcgH56SZtu6iQPC8xAxzhmke?usp=drive_link) and put them under `checkpoints`.

@@ -132,10 +132,10 @@ class Model(BaseModel):
         else:
             in_grid = out['in_grid']
             if self.mismatched_voxel_size:
-                enc_svh.build_point_splatting(in_grid.grid_to_world(in_grid.ijk.float()))
+                enc_svh.build_point_splatting(in_grid.voxel_to_world(in_grid.ijk.float()))
             else:
                 enc_svh.build_grid_splatting(in_grid)
-            input_xyz = in_grid.grid_to_world(in_grid.ijk.float())
+            input_xyz = in_grid.voxel_to_world(in_grid.ijk.float())
 
         input_feature = []
         if 'normal' in self.hparams.feature:
@@ -143,7 +143,7 @@ class Model(BaseModel):
         if 'semantics' in self.hparams.feature:
             sem: JaggedTensor = out['in_semantics']
             input_feature.append(sem.jagged_like(torch.softmax(sem.jdata, dim=1)))
-        input_feature = fvdb.cat(input_feature, dim=-1) if len(input_feature) > 0 else None
+        input_feature = fvdb.jcat(input_feature, dim=-1) if len(input_feature) > 0 else None
 
         feat = self.network.encoder(
             input_xyz, input_feature,
@@ -190,10 +190,10 @@ class Model(BaseModel):
                 approx_kernel_grad=False
             )
 
-            normal_xyz = fvdb.cat(
+            normal_xyz = fvdb.jcat(
                 [dec_svh.get_voxel_centers(d) for d in range(self.hparams.adaptive_depth)], dim=1
             )
-            normal_value = fvdb.cat(
+            normal_value = fvdb.jcat(
                 [out_normal_features[d] for d in range(self.hparams.adaptive_depth)], dim=1
             )
 
@@ -243,7 +243,7 @@ class Model(BaseModel):
         else:
             gt_grid = out['gt_grid']
             if self.mismatched_voxel_size:
-                gt_svh.build_point_splatting(gt_grid.grid_to_world(gt_grid.ijk.float()))
+                gt_svh.build_point_splatting(gt_grid.voxel_to_world(gt_grid.ijk.float()))
             else:
                 gt_svh.build_grid_splatting(out['gt_grid'])
         out['gt_svh'] = gt_svh
@@ -317,25 +317,25 @@ class Model(BaseModel):
                 rm_ijk.append(crop_ijk)
                 rm_jidx.append(crop_jidx)
             rm_ijk, rm_jidx = torch.cat(rm_ijk), torch.cat(rm_jidx).short()
-            rm_ijk = JaggedTensor.from_data_and_jidx(rm_ijk, rm_jidx, out_grid.grid_count)
+            rm_ijk = JaggedTensor.from_data_and_indices(rm_ijk, rm_jidx, out_grid.grid_count)
             rm_inds = out_grid.ijk_to_index(rm_ijk).jdata
             exist_mask = torch.ones(out_grid.total_voxels, dtype=torch.bool, device=self.device)
             exist_mask[rm_inds[rm_inds != -1]] = False
-            aug_ijk = out_grid_ijk.r_masked_select(exist_mask)
-            aug_grid = fvdb.sparse_grid_from_ijk(aug_ijk, voxel_sizes=out_grid.voxel_sizes, origins=out_grid.origins)
+            aug_ijk = out_grid_ijk.pruned_grid(exist_mask)
+            aug_grid = fvdb.GridBatch.from_ijk(aug_ijk, voxel_sizes=out_grid.voxel_sizes, origins=out_grid.origins)
 
         extracted_dict['grid'] = aug_grid if aug_grid is not None else out_grid
 
         if 'normal_features' in vae_out_dict:
             normal_feature = vae_out_dict['normal_features'][-1].feature
             if aug_grid is not None:
-                normal_feature = aug_grid.fill_to_grid(normal_feature, out_grid)
+                normal_feature = aug_grid.inject_from(normal_feature, out_grid)
             extracted_dict['normal_features'] = normal_feature
 
         if 'semantic_features' in vae_out_dict:
             semantic_feature = vae_out_dict['semantic_features'][-1].feature
             if aug_grid is not None:
-                semantic_feature = aug_grid.fill_to_grid(semantic_feature, out_grid)
+                semantic_feature = aug_grid.inject_from(semantic_feature, out_grid)
             extracted_dict['semantic_features'] = semantic_feature
 
         return extracted_dict
@@ -359,7 +359,7 @@ class Model(BaseModel):
         vae_out = self.extract_vae_out(vae_out)
 
         out['in_grid'] = vae_out['grid']
-        out['gt_grid']: GridBatch = fvdb.cat(batch[DS.INPUT_PC])
+        out['gt_grid']: GridBatch = fvdb.gcat(batch[DS.INPUT_PC])
 
         if 'normal' in self.hparams.feature:
             out['in_normal']: JaggedTensor = vae_out['normal_features']
@@ -399,7 +399,7 @@ class Model(BaseModel):
                 ref_pcd = vis.pointcloud(ref_xyz[0].jdata, normal=ref_normal[0].jdata)
                 
                 # Show reference pcd.
-                vis.show_3d([ref_pcd], [vis.pointcloud(in_grid.grid_to_world(in_grid.ijk.float()).jdata)])
+                vis.show_3d([ref_pcd], [vis.pointcloud(in_grid.voxel_to_world(in_grid.ijk.float()).jdata)])
 
                 # Show pd and gt mesh.
                 mesh_key = 'kernel_sdf' if self.hparams.finetune_kernel_sdf else 'neural_udf'
@@ -412,9 +412,9 @@ class Model(BaseModel):
             ps.init()
             ps.set_ground_plane_mode("none")
             ps.set_up_dir("z_up")
-            ps_in = ps.register_point_cloud("in", in_grid.grid_to_world(in_grid.ijk.float()).jdata.cpu().numpy())
-            ps_out = ps.register_point_cloud("out", out_grid.grid_to_world(out_grid.ijk.float()).jdata.cpu().numpy())
-            ps_gt = ps.register_point_cloud("gt", gt_grid.grid_to_world(gt_grid.ijk.float()).jdata.cpu().numpy())
+            ps_in = ps.register_point_cloud("in", in_grid.voxel_to_world(in_grid.ijk.float()).jdata.cpu().numpy())
+            ps_out = ps.register_point_cloud("out", out_grid.voxel_to_world(out_grid.ijk.float()).jdata.cpu().numpy())
+            ps_gt = ps.register_point_cloud("gt", gt_grid.voxel_to_world(gt_grid.ijk.float()).jdata.cpu().numpy())
 
             if in_normal is not None:
                 ps_in.add_color_quantity("normal", in_normal.detach().cpu().numpy() / 2 + 0.5)
@@ -473,7 +473,7 @@ class Model(BaseModel):
         out['in_grid'] = vae_out['tree'][0]
 
         out['gt_normal']: JaggedTensor = JaggedTensor(batch[DS.TARGET_NORMAL])     # Currently wrong
-        out['gt_grid']: GridBatch = fvdb.cat(batch[DS.INPUT_PC])
+        out['gt_grid']: GridBatch = fvdb.gcat(batch[DS.INPUT_PC])
         batch_size = out['gt_grid'].grid_count
 
         out = self(out)
@@ -502,11 +502,11 @@ class Model(BaseModel):
             out_geom = vis.mesh(pd_mesh.v, pd_mesh.f)
         
         else:
-            out_geom = vis.pointcloud(out_grid.grid_to_world(out_grid.ijk.float()).jdata, normal=out_normal)
+            out_geom = vis.pointcloud(out_grid.voxel_to_world(out_grid.ijk.float()).jdata, normal=out_normal)
 
-        vis.show_3d([vis.pointcloud(in_grid.grid_to_world(in_grid.ijk.float()).jdata, normal=in_normal)],
+        vis.show_3d([vis.pointcloud(in_grid.voxel_to_world(in_grid.ijk.float()).jdata, normal=in_normal)],
                     [out_geom],
-                    [vis.pointcloud(gt_grid.grid_to_world(gt_grid.ijk.float()).jdata, normal=gt_normal)])
+                    [vis.pointcloud(gt_grid.voxel_to_world(gt_grid.ijk.float()).jdata, normal=gt_normal)])
 
     def get_dataset_spec(self):
         return [DS.SHAPE_NAME, DS.INPUT_PC,

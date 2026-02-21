@@ -11,6 +11,7 @@ import gc
 import fvdb
 import fvdb.nn as fvnn
 import numpy as np
+from xcube.utils.vdb_tensor import VDBTensor
 import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -78,14 +79,14 @@ class Model(BaseModel):
                 break
             voxel_size = [sv * 2 ** depth for sv in self.hparams.voxel_size]
             origins = [sv / 2. for sv in voxel_size]            
-            hash_tree[depth] = fvdb.sparse_grid_from_nearest_voxels_to_points(input_xyz, 
+            hash_tree[depth] = fvdb.GridBatch.from_nearest_voxels_to_points(input_xyz, 
                                                                               voxel_sizes=voxel_size, 
                                                                               origins=origins)
         return hash_tree
     
     def build_hash_tree_from_grid(self, input_grid):
         hash_tree = {}
-        input_xyz = input_grid.grid_to_world(input_grid.ijk.float())
+        input_xyz = input_grid.voxel_to_world(input_grid.ijk.float())
         
         for depth in range(self.hparams.tree_depth):
             if depth != 0 and not self.hparams.use_hash_tree:
@@ -96,7 +97,7 @@ class Model(BaseModel):
             if depth == 0:
                 hash_tree[depth] = input_grid
             else:
-                hash_tree[depth] = fvdb.sparse_grid_from_nearest_voxels_to_points(input_xyz, 
+                hash_tree[depth] = fvdb.GridBatch.from_nearest_voxels_to_points(input_xyz, 
                                                                                   voxel_sizes=voxel_size, 
                                                                                   origins=origins)
         return hash_tree
@@ -111,7 +112,7 @@ class Model(BaseModel):
             hash_tree = None
                 
         unet_feat = self.encoder(input_grid, batch)
-        unet_feat = fvnn.VDBTensor(input_grid, input_grid.jagged_like(unet_feat))
+        unet_feat = VDBTensor(input_grid, input_grid.jagged_like(unet_feat))
         unet_res, unet_output, dist_features = self.unet(unet_feat, hash_tree)
 
         out.update({'tree': unet_res.structure_grid})
@@ -242,11 +243,11 @@ class Model(BaseModel):
             hash_tree = None
 
         unet_feat = self.encoder(input_grid, batch)
-        unet_feat = fvnn.VDBTensor(input_grid, input_grid.jagged_like(unet_feat))
+        unet_feat = VDBTensor(input_grid, input_grid.jagged_like(unet_feat))
         _, x, mu, log_sigma = self.unet.encode(unet_feat, hash_tree=hash_tree)
         if use_mode:
             sparse_feature = mu
         else:
             sparse_feature = reparametrize(mu, log_sigma)
         
-        return fvnn.VDBTensor(x.grid, x.grid.jagged_like(sparse_feature))
+        return VDBTensor(x.grid, x.grid.jagged_like(sparse_feature))
